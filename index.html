@@ -4,7 +4,6 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
 <title>ลงทะเบียนสมาชิก | ศูนย์บริการ</title>
-<script src="https://static.line-me.net/liff/edge/2/sdk.js"></script>
 <style>
   *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
   body{font-family:-apple-system,"Sarabun","Helvetica Neue",sans-serif;background:#F4F6F8;color:#1a1a1a;padding-bottom:40px}
@@ -15,18 +14,17 @@
   .card{background:#fff;margin:-28px 16px 0;border-radius:14px;padding:20px;box-shadow:0 4px 18px rgba(0,0,0,.07)}
   label{display:block;font-size:13px;font-weight:600;margin:14px 0 6px;color:#333}
   label span{color:#E03131}
-  input,select,textarea{width:100%;padding:12px 14px;border:1.5px solid #E1E5EA;border-radius:9px;font-size:15px;font-family:inherit;background:#FAFBFC}
+  input,select{width:100%;padding:12px 14px;border:1.5px solid #E1E5EA;border-radius:9px;font-size:15px;font-family:inherit;background:#FAFBFC}
   input:focus,select:focus{outline:none;border-color:#06C755;background:#fff}
   .row{display:flex;gap:10px}.row>div{flex:1}
   .consent{display:flex;gap:9px;align-items:flex-start;margin-top:18px;font-size:12.5px;color:#555;line-height:1.55}
   .consent input{width:19px;height:19px;flex-shrink:0;margin-top:1px}
   .btn{width:100%;padding:15px;background:#06C755;color:#fff;border:none;border-radius:10px;font-size:16px;font-weight:700;margin-top:20px;font-family:inherit}
   .btn:disabled{background:#C7CDD3}
-  .btn-ghost{background:#fff;color:#06C755;border:1.5px solid #06C755;margin-top:10px}
   .msg{padding:12px;border-radius:9px;font-size:13.5px;margin-top:14px;display:none;line-height:1.5}
   .msg.err{background:#FFF0F0;color:#C92A2A;display:block}
   .msg.ok{background:#EBFBEE;color:#0B7285;display:block}
-  #loading{position:fixed;inset:0;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:99;gap:14px}
+  #loading{position:fixed;inset:0;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:99;gap:14px;padding:24px;text-align:center}
   .spin{width:38px;height:38px;border:3.5px solid #E9ECEF;border-top-color:#06C755;border-radius:50%;animation:s .8s linear infinite}
   @keyframes s{to{transform:rotate(360deg)}}
   .appt{background:#fff;margin:14px 16px;border-radius:12px;padding:16px;border-left:4px solid #06C755;box-shadow:0 2px 10px rgba(0,0,0,.05)}
@@ -34,11 +32,15 @@
   .appt b{font-size:15px}.appt p{font-size:13px;color:#666;margin-top:4px}
   .badge{display:inline-block;font-size:11px;padding:3px 9px;border-radius:20px;background:#EBFBEE;color:#0B7285;margin-top:8px}
   h2{font-size:15px;margin:22px 16px 6px;color:#444}
+  .retry{margin-top:16px;padding:10px 22px;background:#06C755;color:#fff;border:none;border-radius:8px;font-size:14px;font-family:inherit}
 </style>
 </head>
 <body>
 
-<div id="loading"><div class="spin"></div><span style="font-size:13px;color:#888">กำลังเชื่อมต่อ LINE...</span></div>
+<div id="loading">
+  <div class="spin"></div>
+  <span id="loadTxt" style="font-size:13px;color:#888">กำลังโหลด LINE SDK...</span>
+</div>
 
 <div id="app" style="display:none">
   <div class="header">
@@ -93,14 +95,55 @@
 </div>
 
 <script>
-/* ========= ตั้งค่า 2 บรรทัดนี้ ========= */
+/* ============ ตั้งค่า 2 บรรทัดนี้ ============ */
 const LIFF_ID = "2001234567-AbCdEfGh";
 const API_URL = "https://script.google.com/macros/s/XXXXXXXX/exec";
-/* ====================================== */
+/* =========================================== */
 
-let idToken = null;
+/* ---------- ตัวโหลด SDK แบบรอจนเสร็จ + มีสำรอง ---------- */
+const SDK_URLS = [
+  "https://static.line-scdn.net/liff/edge/2/sdk.js",
+  "https://cdn.jsdelivr.net/npm/@line/liff@2/dist/liff.js",
+  "https://unpkg.com/@line/liff@2/dist/liff.js"
+];
 
-/** ส่งแบบ text/plain เพื่อเลี่ยง CORS preflight ของ Apps Script */
+function loadScript(src){
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = src;
+    s.charset = 'utf-8';
+    s.onload = () => resolve(src);
+    s.onerror = () => reject(new Error('โหลดไม่ได้: ' + src));
+    document.head.appendChild(s);
+  });
+}
+
+async function ensureLiff(){
+  if (typeof window.liff !== 'undefined') return 'cached';
+  let lastErr;
+  for (const url of SDK_URLS){
+    try{
+      await loadScript(url);
+      if (typeof window.liff !== 'undefined'){
+        console.log('✅ LIFF SDK จาก', url, 'v' + liff.getVersion());
+        return url;
+      }
+    }catch(e){ lastErr = e; console.warn(e.message); }
+  }
+  throw new Error('โหลด LIFF SDK ไม่สำเร็จทุก CDN\n' +
+    'สาเหตุที่เป็นไปได้: ไม่มีอินเทอร์เน็ต / Ad Blocker / องค์กรบล็อกโดเมน line-scdn.net');
+}
+
+function setLoadText(t){ document.getElementById('loadTxt').textContent = t; }
+
+function fail(msg){
+  document.getElementById('loading').innerHTML =
+    `<p style="color:#C92A2A;font-size:15px;font-weight:700">เชื่อมต่อไม่สำเร็จ</p>
+     <p style="color:#888;font-size:12px;margin-top:10px;white-space:pre-line;line-height:1.6">${msg}</p>
+     <button class="retry" onclick="location.reload()">ลองใหม่</button>`;
+}
+
+/* ---------- เรียก API ---------- */
 async function api(payload){
   const res = await fetch(API_URL, {
     method: 'POST',
@@ -116,21 +159,33 @@ function show(type, text){
   el.textContent = text;
 }
 
+let idToken = null;
+
+/* ---------- เริ่มทำงาน ---------- */
 async function main(){
   try{
-    await liff.init({ liffId: LIFF_ID });
-    if (!liff.isLoggedIn()){ liff.login({ redirectUri: location.href }); return; }
+    setLoadText('กำลังโหลด LINE SDK...');
+    await ensureLiff();
 
+    setLoadText('กำลังเชื่อมต่อ LIFF...');
+    await liff.init({ liffId: LIFF_ID });
+
+    if (!liff.isLoggedIn()){
+      liff.login({ redirectUri: location.href });
+      return;
+    }
+
+    setLoadText('กำลังดึงข้อมูลผู้ใช้...');
     const profile = await liff.getProfile();
     idToken = liff.getIDToken();
+    if (!idToken) throw new Error('ไม่ได้รับ ID Token\nกรุณาเปิด Scope "openid" ใน LINE Developers Console');
 
     document.getElementById('pic').src = profile.pictureUrl || '';
     document.getElementById('hello').textContent = 'สวัสดีคุณ ' + profile.displayName;
 
     const chk = await api({ action:'checkMember', idToken });
     if (chk.ok && chk.registered){
-      const m = chk.member;
-      const f = document.getElementById('form');
+      const m = chk.member, f = document.getElementById('form');
       Object.keys(m).forEach(k => { if (f[k]) f[k].value = m[k] || ''; });
       document.getElementById('consent').checked = true;
       document.getElementById('submitBtn').textContent = 'บันทึกการแก้ไข';
@@ -141,12 +196,8 @@ async function main(){
     document.getElementById('loading').style.display = 'none';
     document.getElementById('app').style.display = 'block';
 
-    if (new URLSearchParams(location.search).get('tab') === 'appointments'){
-      loadAppointments();
-    }
   }catch(e){
-    document.getElementById('loading').innerHTML =
-      '<p style="padding:24px;text-align:center;color:#C92A2A;font-size:14px">เชื่อมต่อไม่สำเร็จ<br><small>'+e+'</small></p>';
+    fail((e.message || e) + (e.code ? '\n[code: ' + e.code + ']' : ''));
   }
 }
 
@@ -154,22 +205,26 @@ document.getElementById('form').addEventListener('submit', async (ev) => {
   ev.preventDefault();
   const btn = document.getElementById('submitBtn');
   btn.disabled = true; btn.textContent = 'กำลังบันทึก...';
+  try{
+    const fd = new FormData(ev.target);
+    const profile = await liff.getProfile();
+    const payload = {
+      action:'register', idToken,
+      displayName: profile.displayName, pictureUrl: profile.pictureUrl,
+      consent: document.getElementById('consent').checked
+    };
+    fd.forEach((v,k) => payload[k] = v);
 
-  const fd = new FormData(ev.target);
-  const profile = await liff.getProfile();
-  const payload = {
-    action: 'register', idToken,
-    displayName: profile.displayName, pictureUrl: profile.pictureUrl,
-    consent: document.getElementById('consent').checked
-  };
-  fd.forEach((v, k) => payload[k] = v);
-
-  const r = await api(payload);
-  if (r.ok){
-    show('ok', '✅ ลงทะเบียนสำเร็จ! ระบบจะแจ้งเตือนนัดหมายให้คุณทาง LINE อัตโนมัติ');
-    setTimeout(() => { if (liff.isInClient()) liff.closeWindow(); }, 1800);
-  } else {
-    show('err', '❌ ' + (r.error || 'เกิดข้อผิดพลาด'));
+    const r = await api(payload);
+    if (r.ok){
+      show('ok','✅ ลงทะเบียนสำเร็จ! ระบบจะแจ้งเตือนนัดหมายให้คุณทาง LINE อัตโนมัติ');
+      setTimeout(() => { if (liff.isInClient()) liff.closeWindow(); }, 1800);
+    } else {
+      show('err','❌ ' + (r.error || 'เกิดข้อผิดพลาด'));
+      btn.disabled = false; btn.textContent = 'ลงทะเบียน';
+    }
+  }catch(err){
+    show('err','❌ ' + err.message);
     btn.disabled = false; btn.textContent = 'ลงทะเบียน';
   }
 });
@@ -177,14 +232,14 @@ document.getElementById('form').addEventListener('submit', async (ev) => {
 async function loadAppointments(){
   const r = await api({ action:'myAppointments', idToken });
   if (!r.ok || !r.appointments.length) return;
-  const html = '<h2>📅 นัดหมายของคุณ</h2>' + r.appointments.map(a => `
-    <div class="appt ${a.isPast ? 'past' : ''}">
-      <b>${a.dateText}</b>
-      <p>🕐 ${a.time} น. • ${a.serviceType || '-'}</p>
-      <p>📍 ${a.branch || '-'}</p>
-      <span class="badge">${a.status || 'scheduled'}</span>
-    </div>`).join('');
-  document.getElementById('apptZone').innerHTML = html;
+  document.getElementById('apptZone').innerHTML =
+    '<h2>📅 นัดหมายของคุณ</h2>' + r.appointments.map(a => `
+      <div class="appt ${a.isPast ? 'past' : ''}">
+        <b>${a.dateText}</b>
+        <p>🕐 ${a.time} น. • ${a.serviceType || '-'}</p>
+        <p>📍 ${a.branch || '-'}</p>
+        <span class="badge">${a.status || 'scheduled'}</span>
+      </div>`).join('');
 }
 
 main();
